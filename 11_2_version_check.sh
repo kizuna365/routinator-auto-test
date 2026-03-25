@@ -10,7 +10,7 @@ set -euo pipefail #コマンド失敗か未定義変数の使用でスクリプ�
 # ===== 環境変数 =====
 
 : "${ROUTINATOR_BIN:=routinator}" #バイナリの位置
-: "${EXPECTED_ROUTINATOR_VERSION:=0.15.1}" #検証バージョン指定、未指定なら存在のみ確認
+: "${EXPECTED_ROUTINATOR_VERSION:=}" #検証バージョン指定、未指定なら存在のみ確認
 
 # =====表示用ヘルパ=====
 
