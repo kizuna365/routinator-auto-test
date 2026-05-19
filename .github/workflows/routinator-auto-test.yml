@@ -42,10 +42,7 @@ jobs:
       - name: Compare versions
         id: compare
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "should_test=true" >> "$GITHUB_OUTPUT"
-            echo "手動実行のため、テストを実行します"
-          elif [ "${{ steps.cache.outputs.cache-hit }}" = "true" ]; then
+          if [ "${{ steps.cache.outputs.cache-hit }}" = "true" ]; then
             echo "should_test=false" >> "$GITHUB_OUTPUT"
             echo "バージョン ${{ steps.get_version.outputs.version }} は既にテスト済みです。スキップします"
           else
