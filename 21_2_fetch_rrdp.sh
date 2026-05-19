@@ -52,9 +52,9 @@ set +e
 "${ROUTINATOR_BIN}" \
   --repository-dir "${RPKI_CACHE_DIR}" \
   --disable-rsync \
-  --rrdp-connect-timeout 600 \
-  --rrdp-read-timeout 600 \
-  --rrdp-timeout 600 \
+  --rrdp-connect-timeout 1200 \
+  --rrdp-read-timeout 1200 \
+  --rrdp-timeout 1200 \
   -vv \
   vrps \
   --format json \
