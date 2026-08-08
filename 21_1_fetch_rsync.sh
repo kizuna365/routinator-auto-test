@@ -59,6 +59,11 @@ info "ログファイル          : ${RPKI_LOG_FILE}"
 # --base-dir / --repository-dir : キャッシュの保存先
 # --disable-rrdp : RRDP (HTTPS) を無効化し、rsync を強制する
 # vv : ログにプロトコル詳細を出させるため debug に設定
+# --log-repository-issues : リポジトリ取得の問題ログを通常ログに出させる
+#   0.15.0 以降、取得系のログはデフォルトでは server モードの HTTP ステータス
+#   エンドポイントにしか出ない。vrps はワンショット実行なので参照手段が無く、
+#   このオプションを付けない限りモジュール単位の取得記録がどこにも残らない。
+#   グローバルオプションなので vrps より前に置く必要がある。
 # vrps : VRPリストを出力するコマンド (同期処理も含む)
 # --format json : 出力形式
 # --output ... : 結果の保存先
@@ -70,6 +75,7 @@ set +e
   --repository-dir "${RPKI_CACHE_DIR}" \
   --disable-rrdp \
   -vv \
+  --log-repository-issues \
   vrps \
   --format json \
   --output "${RPKI_OUT_DIR}/vrps.json" \
@@ -84,15 +90,41 @@ if [ "${RC}" -ne 0 ]; then
 fi
 pass "Routinator の実行が正常に完了しました"
 
-info "4) ログ内に rsync アクセスが記録されているか確認"
+info "4) rsync によるモジュール取得が成立したか確認"
 
-if grep -q 'rsync://' "${RPKI_LOG_FILE}"; then
-  pass "ログ内で rsync プロトコルによる取得記録を確認しました"
-  # 具体的な行を抽出して表示（確認用）
-  grep 'rsync://' "${RPKI_LOG_FILE}" | head -n 3 | awk '{print "   [LOG] " $0}'
-else
-  # rsync:// がログにない場合の警告
-  fail "ログ内に 'rsync://' の文字列が見当たりません。"
+
+
+# --log-repository-issues 付きで出るモジュール単位の行:
+#   [DEBUG] rsync <module>: running command Command { ... }   … rsync を起動した
+#   [WARN]  rsync <module>: rsync error: ...                  … rsync が失敗した
+#   [ERROR] rsync <module>: ...                               … 取得を諦めた
+# rsync は成功時に何も出さない (成功完了ログが upstream に実装されていない)。
+info "成功したモジュール = rsync を起動したモジュール - 失敗したモジュール で判定します"
+
+# grep は0件マッチで exit 1 を返し pipefail に引っかかるので sed で抜く
+modules_started() {
+  sed -nE 's/^\[[A-Z]+\] rsync (rsync:\/\/[^ ]+): running command.*/\1/p' "${RPKI_LOG_FILE}" | sort -u
+}
+modules_failed() {
+  sed -nE 's/^\[(WARN|ERROR)\] rsync (rsync:\/\/[^ ]+): .*/\2/p' "${RPKI_LOG_FILE}" | sort -u
+}
+
+if [ -z "$(comm -23 <(modules_started) <(modules_failed))" ]; then
+  # Docker 実行ではログファイルが残らないので、FAIL の材料はここに出す
+  warn "起動したモジュール (先頭5件):"
+  modules_started | awk 'NR<=5 {print "   " $0}'
+  warn "失敗したモジュール (先頭5件):"
+  modules_failed | awk 'NR<=5 {print "   " $0}'
+  fail "rsync による取得に成功したモジュールがありません"
 fi
+pass "rsync による取得に成功したモジュールを確認しました"
+
+info "5) 取得したデータが検証を通ったか確認"
+
+VRP_COUNT="$(grep -c '"prefix"' "${RPKI_OUT_DIR}/vrps.json" || true)"
+if [ "${VRP_COUNT}" -eq 0 ]; then
+  fail "VRPが1件も出力されていません。rsync で取得したデータが検証を通っていません"
+fi
+pass "rsync で取得したデータから VRP が出力されました (${VRP_COUNT}件)"
 
 pass "テスト完了（2.1 RPKIデータの取得：rsyncプロトコルによる取得テスト）"
