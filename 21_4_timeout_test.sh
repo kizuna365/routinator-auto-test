@@ -12,8 +12,8 @@ set -euo pipefail
 : "${RPKI_CACHE_DIR:=./routinator-timeout-cache}" # キャッシュディレクトリ
 : "${RPKI_OUT_DIR:=./routinator-timeout-out}"     # 出力ディレクトリ
 : "${RPKI_LOG_FILE:=./21_4_timeout_setting.log}"
-: "${TIMEOUT_RRDP:=10}"
-: "${TIMEOUT_RSYNC:=10}"
+: "${TIMEOUT_RRDP:=2}"
+: "${TIMEOUT_RSYNC:=2}"
 
 # ===== 表示用ヘルパ =====
 pass() { printf '\e[32m[PASS]\e[0m %s\n' "$*"; }
@@ -52,12 +52,18 @@ info "2) Routinator を タイムアウト指定付きで実行します..."
 
 START_TS="$(date +%s)"
 
+# --log-repository-issues : リポジトリ取得の問題ログを通常ログに出させる
+#   0.15.0 以降、取得系のログはデフォルトでは server モードの HTTP ステータス
+#   エンドポイントにしか出ない。vrps はワンショット実行なので参照手段が無く、
+#   このオプションを付けない限りタイムアウトの記録がどこにも残らない。
+#   グローバルオプションなので vrps より前に置く必要がある。
 set +e
 "${ROUTINATOR_BIN}" \
   --repository-dir "${RPKI_CACHE_DIR}" \
   --rrdp-timeout "${TIMEOUT_RRDP}" \
   --rsync-timeout "${TIMEOUT_RSYNC}" \
   -vv \
+  --log-repository-issues \
   vrps \
   --format json \
   --output "${RPKI_OUT_DIR}/vrps.json" \
@@ -77,12 +83,31 @@ else
 fi
 
 info "3) ログからタイムアウト確認"
-if grep -q "operation timed out" "${RPKI_LOG_FILE}"; then
-    pass "ログ内でタイムアウトの発生を確認しました ('operation timed out')"
-    grep "operation timed out" "${RPKI_LOG_FILE}" | head -n 3 | awk '{print "   [LOG] " $0}'
-else
-    pass "ログにタイムアウト記録がありません。"
+
+# タイムアウトの文言は経路ごとに違う。
+#   HTTP (RRDP) 経路 : [WARN] RRDP <notify-uri>: ...: operation timed out
+#   rsync 経路       : [INFO] rsync <module>: rsync process reached time out
+# rsync 側が [INFO] なのは LogBookWriter::warn() が Info レベルで出力するため。
+# どちらも --log-repository-issues と -v 以上が揃っていないと出ない。
+# --rrdp-timeout と --rsync-timeout の両方を検証するので、両経路とも必須とする。
+MISSING=""
+grep -qF 'operation timed out' "${RPKI_LOG_FILE}" \
+    || MISSING="${MISSING} HTTP(RRDP)"
+grep -qF 'rsync process reached time out' "${RPKI_LOG_FILE}" \
+    || MISSING="${MISSING} rsync"
+
+if [ -n "${MISSING}" ]; then
+    # Docker 実行ではログファイルが残らないので、FAIL の材料はここに出す
+    warn "タイムアウトが記録されていない経路:${MISSING}"
+    warn "指定値: --rrdp-timeout=${TIMEOUT_RRDP} / --rsync-timeout=${TIMEOUT_RSYNC}"
+    fail "タイムアウト設定が機能していることを確認できませんでした"
 fi
+
+pass "両経路でタイムアウトの発生を確認しました"
+# head でパイプを閉じると grep が SIGPIPE で落ち、pipefail で誤 FAIL になる。
+# grep -m 側で件数を絞る
+grep -m 2 -F 'operation timed out' "${RPKI_LOG_FILE}" | awk '{print "   [LOG] " $0}'
+grep -m 2 -F 'rsync process reached time out' "${RPKI_LOG_FILE}" | awk '{print "   [LOG] " $0}'
 
 
 
