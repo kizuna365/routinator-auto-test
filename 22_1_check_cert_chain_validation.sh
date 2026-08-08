@@ -124,7 +124,9 @@ info "5) ログ内に TAL検証失敗が記録されているか確認"
 if grep -q 'No valid trust anchor for' "${RPKI_LOG_FILE}"; then
   pass "ログ内で TAL検証失敗の記録を確認しました"
   # 具体的な行を抽出して表示（確認用）
-  grep 'No valid trust anchor for' "${RPKI_LOG_FILE}" | head -n 5 | awk '{print "   [LOG] " $0}'
+  # head でパイプを閉じると grep が SIGPIPE で落ち、pipefail で誤 FAIL になる。
+  # 件数は grep -m 側で絞る
+  grep -m 5 'No valid trust anchor for' "${RPKI_LOG_FILE}" | awk '{print "   [LOG] " $0}'
 else
   # rsync:// がログにない場合の警告
   fail "ログ内でTAL検証失敗の記録が確認できません。"
