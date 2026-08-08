@@ -48,6 +48,12 @@ info "ログファイル          : ${RPKI_LOG_FILE}"
 # 2) RRDP のみで取得（--disable-rsync 指定）して検証
 
 info "2) Routinator を RRDP 強制モード (--disable-rsync) で実行します..."
+
+# --log-repository-issues : リポジトリ取得の問題ログを通常ログに出させる
+#   0.15.0 以降、取得系のログはデフォルトでは server モードの HTTP ステータス
+#   エンドポイントにしか出ない。vrps はワンショット実行なので参照手段が無く、
+#   このオプションを付けない限り RRDP の更新記録がどこにも残らない。
+#   グローバルオプションなので vrps より前に置く必要がある。
 set +e
 "${ROUTINATOR_BIN}" \
   --repository-dir "${RPKI_CACHE_DIR}" \
@@ -56,6 +62,7 @@ set +e
   --rrdp-read-timeout 1200 \
   --rrdp-timeout 1200 \
   -vv \
+  --log-repository-issues \
   vrps \
   --format json \
   --output "${RPKI_OUT_DIR}/vrps.json" \
@@ -70,18 +77,35 @@ if [ "${RC}" -ne 0 ]; then
 fi
 pass "Routinator の実行が正常に完了しました"
 
-info "3) ログ内に RRDP アクセスが記録されているか確認"
+info "3) RRDP による更新が完了したリポジトリを確認"
 
-# "RRDP" または "https://" を検索
-if grep -q -E 'RRDP|https://' "${RPKI_LOG_FILE}"; then
-  pass "ログ内で RRDP/HTTPS プロトコルによる取得記録を確認しました"
-  
-  # 確認用にログの一部を表示 (URLが見える行などを抽出)
-  # "Processing https://..." や "RRDP:" などを抽出
-  grep -E 'rrdp' "${RPKI_LOG_FILE}" | head -n 3 | awk '{print "   [LOG] " $0}'
+
+
+# --log-repository-issues 付きで出るリポジトリ単位の行:
+#   [DEBUG] RRDP <notify-uri>: snapshot update completed.   … snapshot から更新した
+#   [DEBUG] RRDP <notify-uri>: Delta update completed.      … delta で更新した
+#   [WARN]  RRDP <notify-uri>: ...                          … 更新に失敗した
+# キャッシュを消してから実行するので通常は snapshot 側だが、
+# 実行中に delta へ切り替わる場合もあるため両方を拾う。
+
+if grep -qE ': (snapshot|Delta) update completed\.' "${RPKI_LOG_FILE}"; then
+  pass "RRDP による更新完了を確認しました"
+  grep -m 3 -E ': (snapshot|Delta) update completed\.' "${RPKI_LOG_FILE}" \
+    | awk '{print "   [LOG] " $0}'
 else
-  warn "ログ内に RRDP 通信を示す明確な文字列が見当たりません。"
-  warn "詳細確認のためログを見てください: ${RPKI_LOG_FILE}"
+  # Docker 実行ではログファイルが残らないので、FAIL の材料はここに出す
+  warn "'snapshot update completed.' / 'Delta update completed.' がいずれも出ていません"
+  warn "RRDP の失敗行 (先頭5件):"
+  sed -nE 's/^\[(WARN|ERROR)\] RRDP (https:\/\/.*)/   \2/p' "${RPKI_LOG_FILE}" | awk 'NR<=5'
+  fail "RRDP による更新が完了したリポジトリがありません"
 fi
+
+info "4) 取得したデータが検証を通ったか確認"
+
+VRP_COUNT="$(grep -c '"prefix"' "${RPKI_OUT_DIR}/vrps.json" || true)"
+if [ "${VRP_COUNT}" -eq 0 ]; then
+  fail "VRPが1件も出力されていません。RRDP で取得したデータが検証を通っていません"
+fi
+pass "RRDP で取得したデータから VRP が出力されました (${VRP_COUNT}件)"
 
 pass "テスト完了（2.1 RPKIデータの取得：RRDPによる取得テスト）"
