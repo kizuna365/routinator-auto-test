@@ -12,6 +12,7 @@ jobs:
   # ── 1) Routinator バージョン確認 ──
   check-version:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       version: ${{ steps.get_version.outputs.version }}
       should_test: ${{ steps.compare.outputs.should_test }}
@@ -55,6 +56,7 @@ jobs:
     needs: check-version
     if: needs.check-version.outputs.should_test == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
 
@@ -75,6 +77,7 @@ jobs:
   test-11-1:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: Download Docker image
         uses: actions/download-artifact@v4
@@ -90,8 +93,9 @@ jobs:
 
   # ── 11_2 ──
   test-11-2:
-    needs: test-11-1
+    needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: Download Docker image
         uses: actions/download-artifact@v4
@@ -107,8 +111,9 @@ jobs:
 
   # ── 11_3 ──
   test-11-3:
-    needs: test-11-2
+    needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: Download Docker image
         uses: actions/download-artifact@v4
@@ -124,8 +129,9 @@ jobs:
 
   # ── 12_1 ──
   test-12-1:
-    needs: test-11-3
+    needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: Download Docker image
         uses: actions/download-artifact@v4
@@ -141,8 +147,9 @@ jobs:
 
   # ── 12_2 ──
   test-12-2:
-    needs: test-12-1
+    needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: Download Docker image
         uses: actions/download-artifact@v4
@@ -158,8 +165,9 @@ jobs:
 
   # ── 12_3 ──
   test-12-3:
-    needs: test-12-2
+    needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: Download Docker image
         uses: actions/download-artifact@v4
@@ -175,8 +183,9 @@ jobs:
 
   # ── 21_1 ──
   test-21-1:
-    needs: test-12-3
+    needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: Download Docker image
         uses: actions/download-artifact@v4
@@ -211,8 +220,9 @@ jobs:
 
   # ── 21_2 ──
   test-21-2:
-    needs: test-21-1
+    needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: Download Docker image
         uses: actions/download-artifact@v4
@@ -234,17 +244,39 @@ jobs:
           docker cp rrdp-run:/opt/routinator-tests/routinator-rrdp-out /tmp/rpki-rrdp/
           docker rm rrdp-run
 
+      - name: Archive RRDP data
+        run: tar -cf /tmp/rpki-rrdp.tar -C /tmp/rpki-rrdp .
+
+      - name: Upload RRDP data
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpki-rrdp
+          path: /tmp/rpki-rrdp.tar
+          retention-days: 1
+
+  # ── 21_1 と 21_2 の取得結果を、後続のテストに渡す形にまとめる ──
+  pack-cache:
+    needs: [test-21-1, test-21-2]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
       - name: Download rsync data
         uses: actions/download-artifact@v4
         with:
           name: rpki-rsync
           path: /tmp
 
+      - name: Download RRDP data
+        uses: actions/download-artifact@v4
+        with:
+          name: rpki-rrdp
+          path: /tmp
+
       - name: Create combined RPKI cache
         run: |
           mkdir -p /tmp/rpki-cache
           tar -xf /tmp/rpki-rsync.tar -C /tmp/rpki-cache
-          cp -r /tmp/rpki-rrdp/routinator-rrdp-out /tmp/rpki-cache/
+          tar -xf /tmp/rpki-rrdp.tar -C /tmp/rpki-cache
           tar -cf /tmp/rpki-cache.tar -C /tmp/rpki-cache .
 
       - name: Upload RPKI cache
@@ -256,8 +288,9 @@ jobs:
 
   # ── 21_3 ──
   test-21-3:
-    needs: test-21-2
+    needs: pack-cache
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: Download Docker image
         uses: actions/download-artifact@v4
@@ -290,8 +323,9 @@ jobs:
 
   # ── 21_4 ──
   test-21-4:
-    needs: test-21-3
+    needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: Download Docker image
         uses: actions/download-artifact@v4
@@ -307,8 +341,9 @@ jobs:
 
   # ── 22_1 ──
   test-22-1:
-    needs: test-21-4
+    needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: Download Docker image
         uses: actions/download-artifact@v4
@@ -324,8 +359,9 @@ jobs:
 
   # ── 22_2 ──
   test-22-2:
-    needs: test-22-1
+    needs: pack-cache
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: Download Docker image
         uses: actions/download-artifact@v4
@@ -358,8 +394,9 @@ jobs:
 
   # ── 22_3 ──
   test-22-3:
-    needs: test-22-2
+    needs: pack-cache
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: Download Docker image
         uses: actions/download-artifact@v4
@@ -392,8 +429,9 @@ jobs:
 
   # ── 22_4 ──
   test-22-4:
-    needs: test-22-3
+    needs: pack-cache
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: Download Docker image
         uses: actions/download-artifact@v4
@@ -426,8 +464,9 @@ jobs:
 
   # ── 22_5 ──
   test-22-5:
-    needs: test-22-4
+    needs: pack-cache
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: Download Docker image
         uses: actions/download-artifact@v4
@@ -460,8 +499,9 @@ jobs:
 
   # ── 31_1 ──
   test-31-1:
-    needs: test-22-5
+    needs: pack-cache
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: Download Docker image
         uses: actions/download-artifact@v4
@@ -505,8 +545,9 @@ jobs:
 
   # ── 31_2 ──
   test-31-2:
-    needs: test-31-1
+    needs: pack-cache
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: Download Docker image
         uses: actions/download-artifact@v4
@@ -539,8 +580,9 @@ jobs:
 
   # ── 31_3 ──
   test-31-3:
-    needs: test-31-2
+    needs: pack-cache
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: Download Docker image
         uses: actions/download-artifact@v4
@@ -573,8 +615,9 @@ jobs:
 
   # ── 32_1 ──
   test-32-1:
-    needs: test-31-3
+    needs: test-31-1
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: Download Docker image
         uses: actions/download-artifact@v4
@@ -600,8 +643,9 @@ jobs:
 
   # ── 32_2 ──
   test-32-2:
-    needs: test-32-1
+    needs: test-31-1
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: Download Docker image
         uses: actions/download-artifact@v4
@@ -627,8 +671,9 @@ jobs:
 
   # ── 41_1 ──
   test-41-1:
-    needs: test-32-2
+    needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: Download Docker image
         uses: actions/download-artifact@v4
@@ -644,8 +689,9 @@ jobs:
 
   # ── 41_2 ──
   test-41-2:
-    needs: test-41-1
+    needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: Download Docker image
         uses: actions/download-artifact@v4
@@ -661,8 +707,9 @@ jobs:
 
   # ── 42_1 ──
   test-42-1:
-    needs: test-41-2
+    needs: pack-cache
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: Download Docker image
         uses: actions/download-artifact@v4
@@ -697,8 +744,9 @@ jobs:
 
   # ── 42_2 ──
   test-42-2:
-    needs: test-42-1
+    needs: pack-cache
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: Download Docker image
         uses: actions/download-artifact@v4
@@ -731,11 +779,111 @@ jobs:
               bash 42_2_rtr_incremental_update.sh
             "
 
-  # ── テスト済みバージョンをキャッシュに保存 ──
-  save-version:
-    needs: [check-version, test-42-2]
+  # ── 全テストの結果を一覧にする ──
+  summary:
+    needs:
+      - check-version
+      - build
+      - pack-cache
+      - test-11-1
+      - test-11-2
+      - test-11-3
+      - test-12-1
+      - test-12-2
+      - test-12-3
+      - test-21-1
+      - test-21-2
+      - test-21-3
+      - test-21-4
+      - test-22-1
+      - test-22-2
+      - test-22-3
+      - test-22-4
+      - test-22-5
+      - test-31-1
+      - test-31-2
+      - test-31-3
+      - test-32-1
+      - test-32-2
+      - test-41-1
+      - test-41-2
+      - test-42-1
+      - test-42-2
     if: always() && needs.check-version.outputs.should_test == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Write test summary
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python3 - >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          import json, os
+
+          needs = json.loads(os.environ["NEEDS"])
+          # 表に出すスクリプト名。ここに無いテストは番号 (11_1 など) だけで出る
+          names = {s[:4]: s for s in """
+              11_1_pkg_install_check.sh
+              11_2_version_check.sh
+              11_3_dependency_check.sh
+              12_1_default_check.sh
+              12_2_default_where.sh
+              12_3_custom_check.sh
+              21_1_fetch_rsync.sh
+              21_2_fetch_rrdp.sh
+              21_3_check_all_rir.sh
+              21_4_timeout_test.sh
+              22_1_check_cert_chain_validation.sh
+              22_2_check_roa_signature_validation.sh
+              22_3_check_crl_validation.sh
+              22_4_check_manifest_validation.sh
+              22_5_check_invalid_data_rejection.sh
+              31_1_output_csv.sh
+              31_2_output_json.sh
+              31_3_output_openbgpd.sh
+              32_1_check_prefix.sh
+              32_2_check_AS.sh
+              41_1_rtr_server_running.sh
+              41_2_rtr_port_listen.sh
+              42_1_rtr_client_accept.sh
+              42_2_rtr_incremental_update.sh
+          """.split()}
+          label = {"success": "PASS", "skipped": "SKIP", "failure": "FAIL"}
+          count = {"PASS": 0, "FAIL": 0, "SKIP": 0}
+
+          print("## Test Summary")
+          print()
+          # テスト以外のジョブ (build, pack-cache) が失敗すると、続くテストは SKIP としか出ない。原因を表の前に書く
+          for job in sorted(needs):
+              result = needs[job]["result"]
+              if not job.startswith("test-") and result not in ("success", "skipped"):
+                  print(f"**{job}: {result}** (このジョブに続くテストは実行されず、SKIP になっている)")
+                  print()
+          print("| Script | Result |")
+          print("|---|---|")
+          for job in sorted(needs):
+              if not job.startswith("test-"):
+                  continue
+              result = needs[job]["result"]
+              kind = label.get(result, "FAIL")
+              count[kind] += 1
+              key = job[5:].replace("-", "_")
+              shown = kind if result in label else f"FAIL ({result})"
+              print(f"| {names.get(key, key)} | {shown} |")
+          total = sum(count.values())
+          print()
+          for kind in ("PASS", "FAIL", "SKIP"):
+              print(f"- {kind}: {count[kind]} / {total}")
+          EOF
+
+  # ── テスト済みバージョンをキャッシュに保存 ──
+  save-version:
+    needs: [check-version, build, summary]
+    # テストが最後まで走ったら、結果が成功でも失敗でも記録する (1つの版につきテストは1回)。
+    # 実行を取り消したときと、イメージを作れずテストが走らなかったときは記録しない。
+    if: ${{ !cancelled() && needs.check-version.outputs.should_test == 'true' && needs.build.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Save tested version
         run: |
