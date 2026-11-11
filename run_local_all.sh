@@ -235,6 +235,33 @@ run_server_test() {
     fi
 }
 
+# 名前付きコンテナでテストを実行し、成功したら成果物のディレクトリをホストに抽出する
+#   $1: スクリプト  $2: コンテナにマウントするもの (無ければ "")  $3: 抽出先  $4 以降: 抽出するディレクトリ名
+run_and_extract() {
+    local script="$1" mount="$2" dest="$3"; shift 3
+    local container="extract-run-${script:0:4}-${RUN_ID}"
+    local -a mount_opts=()
+    local dir rc=0
+    if [ -n "${mount}" ]; then
+        mount_opts=(-v "${mount}")
+    fi
+    docker rm -f "${container}" >/dev/null 2>&1 || true
+    if docker run --name "${container}" \
+            ${SYSCTL_OPTS[@]+"${SYSCTL_OPTS[@]}"} \
+            ${mount_opts[@]+"${mount_opts[@]}"} \
+            "${IMAGE_NAME}" \
+            bash "/opt/routinator-tests/${script}"; then
+        mkdir -p "${dest}"
+        for dir in "$@"; do
+            docker cp "${container}:/opt/routinator-tests/${dir}" - | tar xf - -C "${dest}" || rc=1
+        done
+    else
+        rc=1
+    fi
+    docker rm -f "${container}" >/dev/null 2>&1 || true
+    return "${rc}"
+}
+
 cleanup() {
     echo ""
     echo "[CLEANUP] Removing temporary directories..."
@@ -282,7 +309,7 @@ echo "[STEP 3] Done ($(format_duration $((STEP3_END - STEP3_START))))"
 
 # ═══════════════════════════════════════════════════════════
 # STEP 4: 21_* RPKIデータの取得
-#   21_1 + 21_2: rsync/RRDP でデータ取得 → キャッシュ抽出
+#   21_1, 21_2: rsync/RRDP でデータ取得 → キャッシュ抽出
 #   21_3: キャッシュ依存テスト
 #   21_4: 単体テスト（データ依存なし）
 # ═══════════════════════════════════════════════════════════
@@ -290,34 +317,14 @@ echo ""
 STEP4_START=$(date +%s)
 echo "[STEP 4] 21_* RPKIデータの取得"
 
-# 21_1 + 21_2: 同一コンテナでデータ取得し、キャッシュを抽出
-FETCH_CONTAINER="fetch-run-${RUN_ID}"
-echo "  ▶ Running: 21_1_fetch_rsync.sh + 21_2_fetch_rrdp.sh"
-FETCH_START=$(date +%s)
-if docker run --name "${FETCH_CONTAINER}" \
-        ${SYSCTL_OPTS[@]+"${SYSCTL_OPTS[@]}"} \
-        "${IMAGE_NAME}" bash -c \
-        "cd /opt/routinator-tests && bash 21_1_fetch_rsync.sh && bash 21_2_fetch_rrdp.sh"; then
-    mkdir -p "${CACHE_DIR}"
-    docker cp "${FETCH_CONTAINER}:/opt/routinator-tests/routinator-rsync-cache" - | tar xf - -C "${CACHE_DIR}"
-    docker cp "${FETCH_CONTAINER}:/opt/routinator-tests/routinator-rsync-out" - | tar xf - -C "${CACHE_DIR}"
-    docker cp "${FETCH_CONTAINER}:/opt/routinator-tests/routinator-rrdp-out" - | tar xf - -C "${CACHE_DIR}"
-    FETCH_END=$(date +%s)
-    FETCH_DUR=$((FETCH_END - FETCH_START))
+# 21_1, 21_2: 別々のコンテナでデータ取得し、キャッシュを抽出（片方が失敗しても他方は実行する）
+FAIL_COUNT_BEFORE_FETCH=${FAIL_COUNT}
+run_test 21_1_fetch_rsync.sh run_and_extract 21_1_fetch_rsync.sh "" "${CACHE_DIR}" routinator-rsync-cache routinator-rsync-out
+run_test 21_2_fetch_rrdp.sh run_and_extract 21_2_fetch_rrdp.sh "" "${CACHE_DIR}" routinator-rrdp-out
+# キャッシュ依存テストは、21_1 と 21_2 の両方が成功したときだけ実行する
+if [ "${FAIL_COUNT}" -eq "${FAIL_COUNT_BEFORE_FETCH}" ]; then
     CACHE_AVAILABLE=true
-    RESULTS+=("PASS: 21_1_fetch_rsync.sh + 21_2_fetch_rrdp.sh")
-    DURATIONS+=("${FETCH_DUR}")
-    PASS_COUNT=$((PASS_COUNT + 1))
-    echo "  PASS: 21_1_fetch_rsync.sh + 21_2_fetch_rrdp.sh ($(format_duration ${FETCH_DUR}))"
-else
-    FETCH_END=$(date +%s)
-    FETCH_DUR=$((FETCH_END - FETCH_START))
-    RESULTS+=("FAIL: 21_1_fetch_rsync.sh + 21_2_fetch_rrdp.sh")
-    DURATIONS+=("${FETCH_DUR}")
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    echo "  FAIL: 21_1_fetch_rsync.sh + 21_2_fetch_rrdp.sh ($(format_duration ${FETCH_DUR}))"
 fi
-docker rm -f "${FETCH_CONTAINER}" >/dev/null 2>&1 || true
 
 # 21_3: キャッシュ依存
 run_with_cache 21_3_check_all_rir.sh
@@ -353,33 +360,14 @@ STEP6_START=$(date +%s)
 echo "[STEP 6] 31_* VRP出力形式"
 
 # 31_1: CSV生成（名前付きコンテナで実行し、CSV を抽出）
-CSV_CONTAINER="csv-run-${RUN_ID}"
 if "${CACHE_AVAILABLE}"; then
-    echo "  ▶ Running: 31_1_output_csv.sh"
-    CSV_T_START=$(date +%s)
-    if docker run --name "${CSV_CONTAINER}" \
-            ${SYSCTL_OPTS[@]+"${SYSCTL_OPTS[@]}"} \
-            -v "${CACHE_DIR}/routinator-rsync-cache:/opt/routinator-tests/routinator-rsync-cache" \
-            "${IMAGE_NAME}" \
-            bash "/opt/routinator-tests/31_1_output_csv.sh"; then
-        mkdir -p "${CSV_DIR}"
-        docker cp "${CSV_CONTAINER}:/opt/routinator-tests/routinator-csv-out" - | tar xf - -C "${CSV_DIR}"
-        CSV_T_END=$(date +%s)
-        CSV_DUR=$((CSV_T_END - CSV_T_START))
+    FAIL_COUNT_BEFORE_CSV=${FAIL_COUNT}
+    run_test 31_1_output_csv.sh run_and_extract 31_1_output_csv.sh \
+        "${CACHE_DIR}/routinator-rsync-cache:/opt/routinator-tests/routinator-rsync-cache" \
+        "${CSV_DIR}" routinator-csv-out
+    if [ "${FAIL_COUNT}" -eq "${FAIL_COUNT_BEFORE_CSV}" ]; then
         CSV_AVAILABLE=true
-        RESULTS+=("PASS: 31_1_output_csv.sh")
-        DURATIONS+=("${CSV_DUR}")
-        PASS_COUNT=$((PASS_COUNT + 1))
-        echo "  PASS: 31_1_output_csv.sh ($(format_duration ${CSV_DUR}))"
-    else
-        CSV_T_END=$(date +%s)
-        CSV_DUR=$((CSV_T_END - CSV_T_START))
-        RESULTS+=("FAIL: 31_1_output_csv.sh")
-        DURATIONS+=("${CSV_DUR}")
-        FAIL_COUNT=$((FAIL_COUNT + 1))
-        echo "  FAIL: 31_1_output_csv.sh ($(format_duration ${CSV_DUR}))"
     fi
-    docker rm -f "${CSV_CONTAINER}" >/dev/null 2>&1 || true
 else
     skip_test "31_1_output_csv.sh" "cache not available"
 fi
