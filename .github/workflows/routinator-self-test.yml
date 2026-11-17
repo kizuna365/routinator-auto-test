@@ -4,7 +4,19 @@ on:
   workflow_dispatch:
     inputs:
       routinator_version:
-        description: "テストする Routinator の版 (例: 0.15.3、0.16.0~rc1)。空なら最新版"
+        description: "テストする Routinator の版"
+        type: choice
+        default: "最新版"
+        # 新しい版が出たら、その前の最新版をここに足す (「最新版」は常に選べる)
+        options:
+          - "最新版"
+          - "0.16.1"
+          - "0.16.0"
+          - "0.15.3"
+          - "0.14.2"
+          - "その他 (下の欄に入力)"
+      routinator_version_other:
+        description: "「その他」を選んだときの版 (例: 0.15.2、rc 版は 0.16.0~rc1)"
         required: false
         default: ""
 
@@ -23,8 +35,27 @@ jobs:
 
       - name: Build Docker image
         env:
-          ROUTINATOR_VERSION: ${{ inputs.routinator_version }}
-        run: docker build --build-arg ROUTINATOR_VERSION -t routinator-test .
+          SELECTED: ${{ inputs.routinator_version }}
+          OTHER: ${{ inputs.routinator_version_other }}
+        run: |
+          case "${SELECTED}" in
+            その他*)
+              if [ -z "${OTHER}" ]; then
+                echo "::error::「その他」を選んだときは、下の欄に版を入れてください"
+                exit 1
+              fi
+              version="${OTHER}" ;;
+            *)
+              if [ -n "${OTHER}" ]; then
+                echo "::error::下の欄の版 (${OTHER}) を使うには、プルダウンで「その他」を選んでください"
+                exit 1
+              fi
+              version="${SELECTED}" ;;
+          esac
+          if [ "${version}" = "最新版" ]; then
+            version=""
+          fi
+          docker build --build-arg ROUTINATOR_VERSION="${version}" -t routinator-test .
 
       - name: Get installed Routinator version
         id: installed
