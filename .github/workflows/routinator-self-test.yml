@@ -2,6 +2,11 @@ name: Routinator Self-Test (Manual)
 
 on:
   workflow_dispatch:
+    inputs:
+      routinator_version:
+        description: "テストする Routinator の版 (例: 0.15.3、0.16.0~rc1)。空なら最新版"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -11,11 +16,22 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    outputs:
+      version: ${{ steps.installed.outputs.version }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Build Docker image
-        run: docker build -t routinator-test .
+        env:
+          ROUTINATOR_VERSION: ${{ inputs.routinator_version }}
+        run: docker build --build-arg ROUTINATOR_VERSION -t routinator-test .
+
+      - name: Get installed Routinator version
+        id: installed
+        run: |
+          version=$(docker run --rm routinator-test dpkg-query -W -f='${Version}' routinator)
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "Installed Routinator version: ${version}"
 
       - name: Save Docker image
         run: docker save routinator-test | gzip > /tmp/routinator-test.tar.gz
@@ -770,7 +786,8 @@ jobs:
         env:
           NEEDS: ${{ toJSON(needs) }}
         run: |
-          python3 - >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          set -o pipefail
+          python3 - <<'EOF' | tee -a "$GITHUB_STEP_SUMMARY"
           import json, os
 
           needs = json.loads(os.environ["NEEDS"])
@@ -805,6 +822,8 @@ jobs:
           count = {"PASS": 0, "FAIL": 0, "SKIP": 0}
 
           print("## Test Summary")
+          print()
+          print("Routinator: " + (needs["build"]["outputs"].get("version") or "不明 (build が失敗)"))
           print()
           # テスト以外のジョブ (build, pack-cache) が失敗すると、続くテストは SKIP としか出ない。原因を表の前に書く
           for job in sorted(needs):

@@ -14,6 +14,7 @@
 #   TCP_WMEM  – コンテナ内の net.ipv4.tcp_wmem (デフォルト: "4096 65536 16777216")
 #   TCP_CC    – 輻輳制御アルゴリズム (例: bbr。未指定ならカーネル既定のまま)
 #   NO_SYSCTL – "1" を指定すると sysctl 調整を一切行わない
+#   ROUTINATOR_VERSION – テストする Routinator の版 (例: 0.15.3、0.16.0~rc1。未指定なら最新版)
 #
 # 処理フロー
 #   STEP 1: Docker イメージのビルド / TCP バッファ設定の決定
@@ -274,7 +275,9 @@ trap cleanup EXIT
 # ═══════════════════════════════════════════════════════════
 echo "[STEP 1] Building Docker image: ${IMAGE_NAME}"
 STEP1_START=$(date +%s)
-docker build -t "${IMAGE_NAME}" .
+docker build --build-arg ROUTINATOR_VERSION="${ROUTINATOR_VERSION:-}" -t "${IMAGE_NAME}" .
+INSTALLED_VERSION=$(docker run --rm "${IMAGE_NAME}" dpkg-query -W -f "\${Version}" routinator)
+echo "[STEP 1] Routinator: ${INSTALLED_VERSION}"
 
 echo "[STEP 1] Configuring container TCP buffers"
 setup_sysctl_opts
@@ -419,7 +422,7 @@ TOTAL_DUR=$((SCRIPT_END - SCRIPT_START))
 
 echo ""
 echo "========================================="
-echo "  Test Summary"
+echo "  Test Summary (Routinator ${INSTALLED_VERSION})"
 echo "========================================="
 for i in "${!RESULTS[@]}"; do
     printf '  %-55s %s\n' "${RESULTS[$i]}" "$(format_duration ${DURATIONS[$i]})"

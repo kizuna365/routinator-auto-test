@@ -28,6 +28,10 @@ Docker が必要です。どちらのスクリプトも、Docker イメージの
 
 # 1本だけ実行する
 ./run_in_container.sh 11_2_version_check.sh
+
+# Routinator の版を指定して実行する (rc 版は 0.16.0~rc1 のように書く。指定しなければ最新版)
+# sudo を付けるときは、sudo の後ろに書く: sudo ROUTINATOR_VERSION=0.15.3 ./run_local_all.sh
+ROUTINATOR_VERSION=0.15.3 ./run_local_all.sh
 ```
 
 RIR のリポジトリまでの往復遅延が大きい環境 (日本など) では、RRDP の取得がタイムアウトしやすいため、ローカルで実行するときはコンテナ内の TCP バッファの上限を引き上げています。
@@ -38,4 +42,4 @@ RIR のリポジトリまでの往復遅延が大きい環境 (日本など) で
 | ワークフロー | 実行のきっかけ | 内容 |
 |---|---|---|
 | Routinator Auto-Test (Daily) | 毎日1回と手動 | APT リポジトリの最新版を確かめ、まだテストしていない版のときだけ全件を実行する。手動で実行した場合も、テスト済みの版ならスキップする |
-| Routinator Self-Test (Manual) | 手動 | 版に関係なく、毎回全件を実行する |
+| Routinator Self-Test (Manual) | 手動 | 版に関係なく、毎回全件を実行する。実行するときに版を指定できる (例: `0.15.3`、rc 版は `0.16.0~rc1`)。空なら最新版 |

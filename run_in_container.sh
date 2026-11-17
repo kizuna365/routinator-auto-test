@@ -11,6 +11,7 @@
 # 環境変数:
 #   IMAGE_NAME – Docker イメージ名 (デフォルト: routinator-test)
 #   NO_CACHE   – "1" を指定すると --no-cache でビルド
+#   ROUTINATOR_VERSION – テストする Routinator の版 (例: 0.15.3、0.16.0~rc1。未指定なら最新版)
 #   TCP_RMEM   – コンテナ内の net.ipv4.tcp_rmem (デフォルト: "4096 87380 16777216")
 #   TCP_WMEM   – コンテナ内の net.ipv4.tcp_wmem (デフォルト: "4096 65536 16777216")
 #   TCP_CC     – 輻輳制御アルゴリズム (例: bbr。未指定ならカーネル既定のまま)
@@ -139,7 +140,10 @@ if [ "${NO_CACHE:-0}" = "1" ]; then
 fi
 
 echo "=== Docker イメージをビルド: ${IMAGE_NAME} ==="
-docker build ${BUILD_OPTS[@]+"${BUILD_OPTS[@]}"} -t "${IMAGE_NAME}" "${SCRIPT_DIR}"
+docker build ${BUILD_OPTS[@]+"${BUILD_OPTS[@]}"} \
+    --build-arg ROUTINATOR_VERSION="${ROUTINATOR_VERSION:-}" \
+    -t "${IMAGE_NAME}" "${SCRIPT_DIR}"
+echo "=== Routinator: $(docker run --rm "${IMAGE_NAME}" dpkg-query -W -f "\${Version}" routinator) ==="
 
 # ── TCP バッファ設定 ──
 echo "=== コンテナの TCP バッファ設定 ==="
