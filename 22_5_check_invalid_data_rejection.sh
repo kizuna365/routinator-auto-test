@@ -20,7 +20,8 @@ Routinatorが不正なデータを検出して拒否することを確認する
   破壊したpointがVRPを1件も持たない場合、正しく拒否されてもVRP数は変化しないため。
 
   拒否ログは 0.15.0 以降デフォルトで通常ログに出力されない。
-  参照するには --log-repository-issues が必要（グローバルオプションなので vrps より前に置く）。
+  参照するには 0.15 系では --log-repository-issues が必要（グローバルオプションなので vrps より前に置く）。
+  0.16 系ではこのオプションが無くなり、設定ファイルの repository-log で指定する。
   さらに LogBookWriter::warn() は Info レベルで出力するため -v 以上も必須。
 COMMENT
 
@@ -49,8 +50,14 @@ warn() { printf '\e[33m[WARN]\e[0m %s\n' "$*"; }
 # ===== バックアップファイルリスト =====
 BACKUP_FILES=()
 
+# 0.16 系で使う一時的な設定ファイル (下の「リポジトリのログの指定」で作る)
+REPO_LOG_CONF=""
+
 # ===== クリーンアップ関数 =====
 cleanup() {
+    if [ -n "${REPO_LOG_CONF}" ]; then
+        rm -f "${REPO_LOG_CONF}"
+    fi
     if [ "${#BACKUP_FILES[@]}" -eq 0 ]; then
         return
     fi
@@ -106,7 +113,7 @@ run_vrps() {
         --disable-rrdp \
         --disable-rsync \
         -vv \
-        --log-repository-issues \
+        "${REPO_LOG_OPT[@]}" \
         vrps \
         --format csv \
         --output "${csv}" \
@@ -132,6 +139,24 @@ fi
 if [ ! -d "${STORED_DIR}" ]; then
     fail "stored/ ディレクトリが見つかりません: ${STORED_DIR}"
 fi
+
+# ===== リポジトリのログの指定 =====
+# 0.16.0 で --log-repository-issues が無くなり、同じログは設定ファイルの repository-log でしか出せない。
+# 0.15 系はこの設定ファイルを拒否するので、ヘルプにオプションがあるかで分ける。
+# 設定ファイルには repository-dir が必須。
+ROUTINATOR_HELP="$("${ROUTINATOR_BIN}" --help 2>&1 || true)"
+case "${ROUTINATOR_HELP}" in
+    *--log-repository-issues*)
+        REPO_LOG_OPT=(--log-repository-issues)
+        ;;
+    *)
+        REPO_LOG_CONF="$(mktemp)"
+        printf 'repository-dir = "%s"\nrepository-log = "stderr"\nrepository-log-level = "debug"\n' \
+            "$(realpath -m "${EXISTING_CACHE_DIR}")" > "${REPO_LOG_CONF}"
+        REPO_LOG_OPT=(--config "${REPO_LOG_CONF}")
+        ;;
+esac
+info "リポジトリのログの指定: ${REPO_LOG_OPT[0]}"
 
 info "0) 前回の実行結果を掃除します"
 

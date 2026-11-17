@@ -59,7 +59,7 @@ info "ログファイル          : ${RPKI_LOG_FILE}"
 # --base-dir / --repository-dir : キャッシュの保存先
 # --disable-rrdp : RRDP (HTTPS) を無効化し、rsync を強制する
 # vv : ログにプロトコル詳細を出させるため debug に設定
-# --log-repository-issues : リポジトリ取得の問題ログを通常ログに出させる
+# --log-repository-issues : リポジトリ取得の問題ログを通常ログに出させる (0.15 系。0.16 系は下の設定ファイル)
 #   0.15.0 以降、取得系のログはデフォルトでは server モードの HTTP ステータス
 #   エンドポイントにしか出ない。vrps はワンショット実行なので参照手段が無く、
 #   このオプションを付けない限りモジュール単位の取得記録がどこにも残らない。
@@ -70,18 +70,39 @@ info "ログファイル          : ${RPKI_LOG_FILE}"
 
 info "3) Routinator を rsync 強制モード (--disable-rrdp) で実行します"
 
+# 0.16.0 で --log-repository-issues が無くなり、同じログは設定ファイルの repository-log でしか出せない。
+# 0.15 系はこの設定ファイルを拒否するので、ヘルプにオプションがあるかで分ける。
+# 設定ファイルには repository-dir が必須。rsync の起動行は debug でないと出ない。
+REPO_LOG_CONF=""
+ROUTINATOR_HELP="$("${ROUTINATOR_BIN}" --help 2>&1 || true)"
+case "${ROUTINATOR_HELP}" in
+  *--log-repository-issues*)
+    REPO_LOG_OPT=(--log-repository-issues)
+    ;;
+  *)
+    REPO_LOG_CONF="$(mktemp)"
+    printf 'repository-dir = "%s"\nrepository-log = "stderr"\nrepository-log-level = "debug"\n' \
+      "$(realpath -m "${RPKI_CACHE_DIR}")" > "${REPO_LOG_CONF}"
+    REPO_LOG_OPT=(--config "${REPO_LOG_CONF}")
+    ;;
+esac
+info "リポジトリのログの指定: ${REPO_LOG_OPT[0]}"
+
 set +e
 "${ROUTINATOR_BIN}" \
   --repository-dir "${RPKI_CACHE_DIR}" \
   --disable-rrdp \
   -vv \
-  --log-repository-issues \
+  "${REPO_LOG_OPT[@]}" \
   vrps \
   --format json \
   --output "${RPKI_OUT_DIR}/vrps.json" \
   > "${RPKI_LOG_FILE}" 2>&1
 RC=$?
 set -e
+if [ -n "${REPO_LOG_CONF}" ]; then
+  rm -f "${REPO_LOG_CONF}"
+fi
 
 if [ "${RC}" -ne 0 ]; then
   warn "コマンド出力 (末尾5行):"
@@ -94,7 +115,7 @@ info "4) rsync によるモジュール取得が成立したか確認"
 
 
 
-# --log-repository-issues 付きで出るモジュール単位の行:
+# リポジトリのログに出るモジュール単位の行 (0.15 系・0.16 系で同じ形):
 #   [DEBUG] rsync <module>: running command Command { ... }   … rsync を起動した
 #   [WARN]  rsync <module>: rsync error: ...                  … rsync が失敗した
 #   [ERROR] rsync <module>: ...                               … 取得を諦めた
@@ -102,14 +123,15 @@ info "4) rsync によるモジュール取得が成立したか確認"
 info "成功したモジュール = rsync を起動したモジュール - 失敗したモジュール で判定します"
 
 # grep は0件マッチで exit 1 を返し pipefail に引っかかるので sed で抜く
+# sort と comm は並び順をそろえるため LC_ALL=C で動かす (日本語ロケールでは comm が並び順の警告を出し、結果もずれる)
 modules_started() {
-  sed -nE 's/^\[[A-Z]+\] rsync (rsync:\/\/[^ ]+): running command.*/\1/p' "${RPKI_LOG_FILE}" | sort -u
+  sed -nE 's/^\[[A-Z]+\] rsync (rsync:\/\/[^ ]+): running command.*/\1/p' "${RPKI_LOG_FILE}" | LC_ALL=C sort -u
 }
 modules_failed() {
-  sed -nE 's/^\[(WARN|ERROR)\] rsync (rsync:\/\/[^ ]+): .*/\2/p' "${RPKI_LOG_FILE}" | sort -u
+  sed -nE 's/^\[(WARN|ERROR)\] rsync (rsync:\/\/[^ ]+): .*/\2/p' "${RPKI_LOG_FILE}" | LC_ALL=C sort -u
 }
 
-if [ -z "$(comm -23 <(modules_started) <(modules_failed))" ]; then
+if [ -z "$(LC_ALL=C comm -23 <(modules_started) <(modules_failed))" ]; then
   # Docker 実行ではログファイルが残らないので、FAIL の材料はここに出す
   warn "起動したモジュール (先頭5件):"
   modules_started | awk 'NR<=5 {print "   " $0}'

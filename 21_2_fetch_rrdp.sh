@@ -49,11 +49,29 @@ info "ログファイル          : ${RPKI_LOG_FILE}"
 
 info "2) Routinator を RRDP 強制モード (--disable-rsync) で実行します..."
 
-# --log-repository-issues : リポジトリ取得の問題ログを通常ログに出させる
+# --log-repository-issues : リポジトリ取得の問題ログを通常ログに出させる (0.15 系。0.16 系は下の設定ファイル)
 #   0.15.0 以降、取得系のログはデフォルトでは server モードの HTTP ステータス
 #   エンドポイントにしか出ない。vrps はワンショット実行なので参照手段が無く、
 #   このオプションを付けない限り RRDP の更新記録がどこにも残らない。
 #   グローバルオプションなので vrps より前に置く必要がある。
+# 0.16.0 で --log-repository-issues が無くなり、同じログは設定ファイルの repository-log でしか出せない。
+# 0.15 系はこの設定ファイルを拒否するので、ヘルプにオプションがあるかで分ける。
+# 設定ファイルには repository-dir が必須。
+REPO_LOG_CONF=""
+ROUTINATOR_HELP="$("${ROUTINATOR_BIN}" --help 2>&1 || true)"
+case "${ROUTINATOR_HELP}" in
+  *--log-repository-issues*)
+    REPO_LOG_OPT=(--log-repository-issues)
+    ;;
+  *)
+    REPO_LOG_CONF="$(mktemp)"
+    printf 'repository-dir = "%s"\nrepository-log = "stderr"\nrepository-log-level = "debug"\n' \
+      "$(realpath -m "${RPKI_CACHE_DIR}")" > "${REPO_LOG_CONF}"
+    REPO_LOG_OPT=(--config "${REPO_LOG_CONF}")
+    ;;
+esac
+info "リポジトリのログの指定: ${REPO_LOG_OPT[0]}"
+
 set +e
 "${ROUTINATOR_BIN}" \
   --repository-dir "${RPKI_CACHE_DIR}" \
@@ -62,13 +80,16 @@ set +e
   --rrdp-read-timeout 1200 \
   --rrdp-timeout 1200 \
   -vv \
-  --log-repository-issues \
+  "${REPO_LOG_OPT[@]}" \
   vrps \
   --format json \
   --output "${RPKI_OUT_DIR}/vrps.json" \
   > "${RPKI_LOG_FILE}" 2>&1
 RC=$?
 set -e
+if [ -n "${REPO_LOG_CONF}" ]; then
+  rm -f "${REPO_LOG_CONF}"
+fi
 
 if [ "${RC}" -ne 0 ]; then
   warn "コマンド出力 (末尾5行):"
@@ -81,7 +102,7 @@ info "3) RRDP による更新が完了したリポジトリを確認"
 
 
 
-# --log-repository-issues 付きで出るリポジトリ単位の行:
+# リポジトリのログに出るリポジトリ単位の行 (0.15 系・0.16 系で同じ形):
 #   [DEBUG] RRDP <notify-uri>: snapshot update completed.   … snapshot から更新した
 #   [DEBUG] RRDP <notify-uri>: Delta update completed.      … delta で更新した
 #   [WARN]  RRDP <notify-uri>: ...                          … 更新に失敗した

@@ -38,7 +38,9 @@ cleanup() {
         kill "${STARTED_PID}" 2>/dev/null || true
         wait "${STARTED_PID}" 2>/dev/null || true
     fi
-    [ -n "${SERVER_LOG}" ] && rm -f "${SERVER_LOG}"
+    if [ -n "${SERVER_LOG}" ]; then
+        rm -f "${SERVER_LOG}"
+    fi
 }
 trap cleanup EXIT INT TERM
 

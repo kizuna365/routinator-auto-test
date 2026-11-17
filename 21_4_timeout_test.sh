@@ -52,24 +52,45 @@ info "2) Routinator を タイムアウト指定付きで実行します..."
 
 START_TS="$(date +%s)"
 
-# --log-repository-issues : リポジトリ取得の問題ログを通常ログに出させる
+# --log-repository-issues : リポジトリ取得の問題ログを通常ログに出させる (0.15 系。0.16 系は下の設定ファイル)
 #   0.15.0 以降、取得系のログはデフォルトでは server モードの HTTP ステータス
 #   エンドポイントにしか出ない。vrps はワンショット実行なので参照手段が無く、
 #   このオプションを付けない限りタイムアウトの記録がどこにも残らない。
 #   グローバルオプションなので vrps より前に置く必要がある。
+# 0.16.0 で --log-repository-issues が無くなり、同じログは設定ファイルの repository-log でしか出せない。
+# 0.15 系はこの設定ファイルを拒否するので、ヘルプにオプションがあるかで分ける。
+# 設定ファイルには repository-dir が必須。
+REPO_LOG_CONF=""
+ROUTINATOR_HELP="$("${ROUTINATOR_BIN}" --help 2>&1 || true)"
+case "${ROUTINATOR_HELP}" in
+  *--log-repository-issues*)
+    REPO_LOG_OPT=(--log-repository-issues)
+    ;;
+  *)
+    REPO_LOG_CONF="$(mktemp)"
+    printf 'repository-dir = "%s"\nrepository-log = "stderr"\nrepository-log-level = "debug"\n' \
+      "$(realpath -m "${RPKI_CACHE_DIR}")" > "${REPO_LOG_CONF}"
+    REPO_LOG_OPT=(--config "${REPO_LOG_CONF}")
+    ;;
+esac
+info "リポジトリのログの指定: ${REPO_LOG_OPT[0]}"
+
 set +e
 "${ROUTINATOR_BIN}" \
   --repository-dir "${RPKI_CACHE_DIR}" \
   --rrdp-timeout "${TIMEOUT_RRDP}" \
   --rsync-timeout "${TIMEOUT_RSYNC}" \
   -vv \
-  --log-repository-issues \
+  "${REPO_LOG_OPT[@]}" \
   vrps \
   --format json \
   --output "${RPKI_OUT_DIR}/vrps.json" \
   > "${RPKI_LOG_FILE}" 2>&1
 RC=$?
 set -e
+if [ -n "${REPO_LOG_CONF}" ]; then
+  rm -f "${REPO_LOG_CONF}"
+fi
 
 END_TS="$(date +%s)"
 
@@ -87,8 +108,8 @@ info "3) ログからタイムアウト確認"
 # タイムアウトの文言は経路ごとに違う。
 #   HTTP (RRDP) 経路 : [WARN] RRDP <notify-uri>: ...: operation timed out
 #   rsync 経路       : [INFO] rsync <module>: rsync process reached time out
-# rsync 側が [INFO] なのは LogBookWriter::warn() が Info レベルで出力するため。
-# どちらも --log-repository-issues と -v 以上が揃っていないと出ない。
+# rsync 側は 0.15 系では [INFO] (LogBookWriter::warn() が Info レベルで出力するため)、0.16 系では [WARN]。
+# レベルに頼らず文言で探す。どちらもリポジトリのログの指定と -v 以上が揃っていないと出ない。
 # --rrdp-timeout と --rsync-timeout の両方を検証するので、両経路とも必須とする。
 MISSING=""
 grep -qF 'operation timed out' "${RPKI_LOG_FILE}" \
