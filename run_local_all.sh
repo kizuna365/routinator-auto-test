@@ -409,8 +409,8 @@ echo "[STEP 8] Done ($(format_duration $((STEP8_END - STEP8_START))))"
 echo ""
 STEP9_START=$(date +%s)
 echo "[STEP 9] 42_* RTRプロトコル動作"
-run_server_test 42_1_rtr_client_accept.sh
-run_server_test 42_2_rtr_incremental_update.sh
+run_server_test 42_1_rtr_reset_query.sh
+run_standalone 42_2_rtr_serial_query.sh
 STEP9_END=$(date +%s)
 echo "[STEP 9] Done ($(format_duration $((STEP9_END - STEP9_START))))"
 
