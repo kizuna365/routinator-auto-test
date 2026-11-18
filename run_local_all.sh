@@ -35,7 +35,6 @@ cd "${SCRIPT_DIR}"
 IMAGE_NAME="routinator-test"
 RUN_ID="1"
 CACHE_DIR="${SCRIPT_DIR}/.rpki-local-cache-${RUN_ID}"
-CSV_DIR="${SCRIPT_DIR}/.rpki-local-csv-${RUN_ID}"
 
 # ═══════════════════════════════════════════════════════════
 # コンテナ内 TCP バッファの調整
@@ -139,7 +138,6 @@ SCRIPT_START=$(date +%s)
 
 # ── データ可用性フラグ ──
 CACHE_AVAILABLE=false
-CSV_AVAILABLE=false
 
 # ── ヘルパー関数 ──
 format_duration() {
@@ -207,20 +205,6 @@ run_with_cache() {
     fi
 }
 
-run_with_csv() {
-    local script="$1"
-    if "${CSV_AVAILABLE}"; then
-        run_test "${script}" \
-            docker run --rm \
-                ${SYSCTL_OPTS[@]+"${SYSCTL_OPTS[@]}"} \
-                -v "${CSV_DIR}/routinator-csv-out:/opt/routinator-tests/routinator-csv-out" \
-                "${IMAGE_NAME}" \
-                bash "/opt/routinator-tests/${script}"
-    else
-        skip_test "${script}" "CSV not available"
-    fi
-}
-
 run_server_test() {
     local script="$1"
     if "${CACHE_AVAILABLE}"; then
@@ -266,7 +250,7 @@ run_and_extract() {
 cleanup() {
     echo ""
     echo "[CLEANUP] Removing temporary directories..."
-    rm -rf "${CACHE_DIR}" "${CSV_DIR}" 2>/dev/null || true
+    rm -rf "${CACHE_DIR}" 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -355,27 +339,13 @@ echo "[STEP 5] Done ($(format_duration $((STEP5_END - STEP5_START))))"
 
 # ═══════════════════════════════════════════════════════════
 # STEP 6: 31_* VRP出力形式
-#   31_1: CSV生成（キャッシュ依存 → CSV抽出）
-#   31_2, 31_3: キャッシュ依存テスト
+#   31_1〜31_3: キャッシュ依存テスト
 # ═══════════════════════════════════════════════════════════
 echo ""
 STEP6_START=$(date +%s)
 echo "[STEP 6] 31_* VRP出力形式"
 
-# 31_1: CSV生成（名前付きコンテナで実行し、CSV を抽出）
-if "${CACHE_AVAILABLE}"; then
-    FAIL_COUNT_BEFORE_CSV=${FAIL_COUNT}
-    run_test 31_1_output_csv.sh run_and_extract 31_1_output_csv.sh \
-        "${CACHE_DIR}/routinator-rsync-cache:/opt/routinator-tests/routinator-rsync-cache" \
-        "${CSV_DIR}" routinator-csv-out
-    if [ "${FAIL_COUNT}" -eq "${FAIL_COUNT_BEFORE_CSV}" ]; then
-        CSV_AVAILABLE=true
-    fi
-else
-    skip_test "31_1_output_csv.sh" "cache not available"
-fi
-
-# 31_2, 31_3: キャッシュ依存テスト
+run_with_cache 31_1_output_csv.sh
 run_with_cache 31_2_output_json.sh
 run_with_cache 31_3_output_openbgpd.sh
 STEP6_END=$(date +%s)
@@ -387,8 +357,8 @@ echo "[STEP 6] Done ($(format_duration $((STEP6_END - STEP6_START))))"
 echo ""
 STEP7_START=$(date +%s)
 echo "[STEP 7] 32_* VRPデータの正確性"
-run_with_csv 32_1_check_prefix.sh
-run_with_csv 32_2_check_AS.sh
+run_with_cache 32_1_check_prefix.sh
+run_with_cache 32_2_check_AS.sh
 STEP7_END=$(date +%s)
 echo "[STEP 7] Done ($(format_duration $((STEP7_END - STEP7_START))))"
 

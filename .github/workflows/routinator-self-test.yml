@@ -525,23 +525,10 @@ jobs:
 
       - name: Run 31_1_output_csv.sh
         run: |
-          docker run --name csv-run \
+          docker run --rm \
             -v /tmp/rpki-cache/routinator-rsync-cache:/opt/routinator-tests/routinator-rsync-cache \
             routinator-test \
             bash "/opt/routinator-tests/31_1_output_csv.sh"
-
-      - name: Extract CSV from container
-        run: |
-          mkdir -p /tmp/rpki-csv
-          docker cp csv-run:/opt/routinator-tests/routinator-csv-out /tmp/rpki-csv/
-          docker rm csv-run
-
-      - name: Upload CSV output
-        uses: actions/upload-artifact@v4
-        with:
-          name: rpki-csv
-          path: /tmp/rpki-csv
-          retention-days: 1
 
   # ── 31_2 ──
   test-31-2:
@@ -615,7 +602,7 @@ jobs:
 
   # ── 32_1 ──
   test-32-1:
-    needs: test-31-1
+    needs: pack-cache
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -628,22 +615,27 @@ jobs:
       - name: Load Docker image
         run: docker load < /tmp/routinator-test.tar.gz
 
-      - name: Download CSV output
+      - name: Download RPKI cache
         uses: actions/download-artifact@v4
         with:
-          name: rpki-csv
-          path: /tmp/rpki-csv
+          name: rpki-cache
+          path: /tmp
+
+      - name: Extract RPKI cache
+        run: |
+          mkdir -p /tmp/rpki-cache
+          tar -xf /tmp/rpki-cache.tar -C /tmp/rpki-cache
 
       - name: Run 32_1_check_prefix.sh
         run: |
           docker run --rm \
-            -v /tmp/rpki-csv/routinator-csv-out:/opt/routinator-tests/routinator-csv-out \
+            -v /tmp/rpki-cache/routinator-rsync-cache:/opt/routinator-tests/routinator-rsync-cache \
             routinator-test \
             bash "/opt/routinator-tests/32_1_check_prefix.sh"
 
   # ── 32_2 ──
   test-32-2:
-    needs: test-31-1
+    needs: pack-cache
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -656,16 +648,21 @@ jobs:
       - name: Load Docker image
         run: docker load < /tmp/routinator-test.tar.gz
 
-      - name: Download CSV output
+      - name: Download RPKI cache
         uses: actions/download-artifact@v4
         with:
-          name: rpki-csv
-          path: /tmp/rpki-csv
+          name: rpki-cache
+          path: /tmp
+
+      - name: Extract RPKI cache
+        run: |
+          mkdir -p /tmp/rpki-cache
+          tar -xf /tmp/rpki-cache.tar -C /tmp/rpki-cache
 
       - name: Run 32_2_check_AS.sh
         run: |
           docker run --rm \
-            -v /tmp/rpki-csv/routinator-csv-out:/opt/routinator-tests/routinator-csv-out \
+            -v /tmp/rpki-cache/routinator-rsync-cache:/opt/routinator-tests/routinator-rsync-cache \
             routinator-test \
             bash "/opt/routinator-tests/32_2_check_AS.sh"
 
