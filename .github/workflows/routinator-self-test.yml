@@ -18,6 +18,14 @@ on:
         description: "「その他」を選んだときの版 (例: 0.15.2、rc 版は 0.16.0~rc1)"
         required: false
         default: ""
+      ubuntu_version:
+        description: "テストする Ubuntu の版 (Routinator を入れるコンテナ)。26.04 は Routinator 0.15.2 以降、24.04 は 0.14.1 以降しか無い"
+        type: choice
+        default: "22.04"
+        options:
+          - "22.04"
+          - "24.04"
+          - "26.04"
 
 permissions:
   contents: read
@@ -29,6 +37,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       version: ${{ steps.installed.outputs.version }}
+      ubuntu: ${{ steps.installed.outputs.ubuntu }}
     steps:
       - uses: actions/checkout@v4
 
@@ -36,6 +45,7 @@ jobs:
         env:
           SELECTED: ${{ inputs.routinator_version }}
           OTHER: ${{ inputs.routinator_version_other }}
+          UBUNTU: ${{ inputs.ubuntu_version }}
         run: |
           case "${SELECTED}" in
             その他*)
@@ -54,7 +64,7 @@ jobs:
           if [ "${version}" = "最新版" ]; then
             version=""
           fi
-          docker build --build-arg ROUTINATOR_VERSION="${version}" -t routinator-test .
+          docker build --build-arg ROUTINATOR_VERSION="${version}" --build-arg UBUNTU_VERSION="${UBUNTU}" -t routinator-test .
 
       - name: Get installed Routinator version
         id: installed
@@ -62,6 +72,9 @@ jobs:
           version=$(docker run --rm routinator-test dpkg-query -W -f='${Version}' routinator)
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "Installed Routinator version: ${version}"
+          ubuntu=$(docker run --rm routinator-test sh -c '. /etc/os-release && echo "${VERSION_ID} (${VERSION_CODENAME})"')
+          echo "ubuntu=${ubuntu}" >> "$GITHUB_OUTPUT"
+          echo "Ubuntu: ${ubuntu}"
 
       - name: Save Docker image
         run: docker save routinator-test | gzip > /tmp/routinator-test.tar.gz
@@ -832,6 +845,8 @@ jobs:
           print("## Test Summary")
           print()
           print("Routinator: " + (needs["build"]["outputs"].get("version") or "不明 (build が失敗)"))
+          print()
+          print("Ubuntu: " + (needs["build"]["outputs"].get("ubuntu") or "不明 (build が失敗)"))
           print()
           # テスト以外のジョブ (build, pack-cache) が失敗すると、続くテストは SKIP としか出ない。原因を表の前に書く
           for job in sorted(needs):

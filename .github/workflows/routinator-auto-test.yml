@@ -60,6 +60,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       version: ${{ steps.installed.outputs.version }}
+      ubuntu: ${{ steps.installed.outputs.ubuntu }}
     steps:
       - uses: actions/checkout@v4
 
@@ -72,6 +73,9 @@ jobs:
           version=$(docker run --rm routinator-test dpkg-query -W -f='${Version}' routinator)
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "Installed Routinator version: ${version}"
+          ubuntu=$(docker run --rm routinator-test sh -c '. /etc/os-release && echo "${VERSION_ID} (${VERSION_CODENAME})"')
+          echo "ubuntu=${ubuntu}" >> "$GITHUB_OUTPUT"
+          echo "Ubuntu: ${ubuntu}"
 
       - name: Save Docker image
         run: docker save routinator-test | gzip > /tmp/routinator-test.tar.gz
@@ -843,6 +847,8 @@ jobs:
           print("## Test Summary")
           print()
           print("Routinator: " + (needs["build"]["outputs"].get("version") or "不明 (build が失敗)"))
+          print()
+          print("Ubuntu: " + (needs["build"]["outputs"].get("ubuntu") or "不明 (build が失敗)"))
           print()
           # テスト以外のジョブ (build, pack-cache) が失敗すると、続くテストは SKIP としか出ない。原因を表の前に書く
           for job in sorted(needs):

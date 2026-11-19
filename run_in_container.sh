@@ -12,6 +12,7 @@
 #   IMAGE_NAME – Docker イメージ名 (デフォルト: routinator-test)
 #   NO_CACHE   – "1" を指定すると --no-cache でビルド
 #   ROUTINATOR_VERSION – テストする Routinator の版 (例: 0.15.3、0.16.0~rc1。未指定なら最新版)
+#   UBUNTU_VERSION – コンテナの Ubuntu の版 (例: 24.04、26.04。未指定なら 22.04)
 #   TCP_RMEM   – コンテナ内の net.ipv4.tcp_rmem (デフォルト: "4096 87380 16777216")
 #   TCP_WMEM   – コンテナ内の net.ipv4.tcp_wmem (デフォルト: "4096 65536 16777216")
 #   TCP_CC     – 輻輳制御アルゴリズム (例: bbr。未指定ならカーネル既定のまま)
@@ -142,8 +143,10 @@ fi
 echo "=== Docker イメージをビルド: ${IMAGE_NAME} ==="
 docker build ${BUILD_OPTS[@]+"${BUILD_OPTS[@]}"} \
     --build-arg ROUTINATOR_VERSION="${ROUTINATOR_VERSION:-}" \
+    --build-arg UBUNTU_VERSION="${UBUNTU_VERSION:-22.04}" \
     -t "${IMAGE_NAME}" "${SCRIPT_DIR}"
 echo "=== Routinator: $(docker run --rm "${IMAGE_NAME}" dpkg-query -W -f "\${Version}" routinator) ==="
+echo "=== Ubuntu: $(docker run --rm "${IMAGE_NAME}" sh -c '. /etc/os-release && echo "${VERSION_ID} (${VERSION_CODENAME})"') ==="
 
 # ── TCP バッファ設定 ──
 echo "=== コンテナの TCP バッファ設定 ==="
